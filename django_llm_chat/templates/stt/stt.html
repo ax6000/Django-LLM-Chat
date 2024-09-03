@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>リアルタイム音声認識</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            font-size: 16px;
+            padding: 10px 20px;
+            margin: 10px;
+        }
+        .container {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 20px;
+            height: 200px;
+            overflow-y: auto;
+        }
+        #log {
+            background-color: #f0f0f0;
+        }
+        #transcription {
+            background-color: #e6f3ff;
+        }
+    </style>
+</head>
+<body>
+    <h1>リアルタイム音声認識</h1>
+    
+    <div>
+        <button onclick="startRecording()" id="startButton">録音開始</button>
+        <button onclick="stopRecording()" id="stopButton" disabled>録音停止</button>
+    </div>
+
+    <h2>ログ</h2>
+    <div id="log" class="container"></div>
+
+    <h2>音声認識結果</h2>
+    <div id="transcription" class="container"></div>
+
+    <script>
+        let socket;
+        let mediaRecorder;
+        let audioChunks = [];
+
+        function log(message) {
+            const logElement = document.getElementById('log');
+            logElement.innerHTML += message + '<br>';
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+
+        function startWebSocket() {
+            socket = new WebSocket('ws://localhost:8000/ws/');
+            
+            socket.onopen = function(e) {
+                log("WebSocket接続が確立されました");
+            };
+
+            socket.onmessage = function(event) {
+                log("サーバーからの応答を受信しました");
+                const transcriptionElement = document.getElementById('transcription');
+                transcriptionElement.innerHTML += event.data + '<br>';
+                transcriptionElement.scrollTop = transcriptionElement.scrollHeight;
+            };
+
+            socket.onclose = function(event) {
+                log("WebSocket接続が閉じられました");
+            };
+
+            socket.onerror = function(error) {
+                log("WebSocketエラー: " + error);
+            };
+        }
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                        if (socket.readyState === WebSocket.OPEN) {
+                            socket.send(event.data);
+                        }
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        audioChunks = [];
+                    };
+
+                    mediaRecorder.start(1000);
+                    log("録音を開始しました");
+                    document.getElementById('startButton').disabled = true;
+                    document.getElementById('stopButton').disabled = false;
+                })
+                .catch(error => log('マイクへのアクセスエラー: ' + error));
+        }
+
+        function stopRecording() {
+            if (mediaRecorder) {
+                mediaRecorder.stop();
+                log("録音を停止しました");
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
+            }
+        }
+
+        window.onload = function() {
+            startWebSocket();
+        };
+    </script>
+</body>
+</html>
